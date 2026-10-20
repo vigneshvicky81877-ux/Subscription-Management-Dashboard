@@ -1,0 +1,95 @@
+// Prisma schema for the Subscription Management Dashboard.
+// Column names are snake_case in PostgreSQL and camelCase in the Prisma client.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  CANCELLED
+}
+
+model User {
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String         @db.VarChar(100)
+  email         String         @unique @db.VarChar(255)
+  password      String         @db.VarChar(255)
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  subscriptions Subscription[]
+  refreshTokens RefreshToken[]
+
+  @@index([role])
+  @@map("users")
+}
+
+model Plan {
+  id            String         @id @default(uuid()) @db.Uuid
+  name          String         @unique @db.VarChar(50)
+  description   String?        @db.VarChar(255)
+  price         Decimal        @db.Decimal(10, 2)
+  currency      String         @default("INR") @db.Char(3)
+  features      String[]
+  durationDays  Int            @map("duration_days")
+  isPopular     Boolean        @default(false) @map("is_popular")
+  isActive      Boolean        @default(true) @map("is_active")
+  sortOrder     Int            @default(0) @map("sort_order")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+  subscriptions Subscription[]
+
+  @@index([isActive, sortOrder])
+  @@map("plans")
+}
+
+model Subscription {
+  id          String             @id @default(uuid()) @db.Uuid
+  userId      String             @map("user_id") @db.Uuid
+  planId      String             @map("plan_id") @db.Uuid
+  startDate   DateTime           @map("start_date")
+  endDate     DateTime           @map("end_date")
+  status      SubscriptionStatus @default(ACTIVE)
+  // Price snapshot so later plan price changes don't rewrite history.
+  amount      Decimal            @db.Decimal(10, 2)
+  cancelledAt DateTime?          @map("cancelled_at")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan        Plan               @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  // A partial unique index (one ACTIVE subscription per user) is added in the
+  // init migration SQL because Prisma cannot express partial indexes.
+  @@index([userId, status])
+  @@index([status, endDate])
+  @@index([planId])
+  @@index([createdAt])
+  @@map("subscriptions")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  // SHA-256 of the issued token; the raw token is never stored.
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
